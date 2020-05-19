@@ -10,8 +10,7 @@ import 'dart:math' as math;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
-
-import 'util.dart';
+import 'package:scroll_to_index/util.dart';
 
 const defaultScrollDistanceOffset = 100.0;
 const defaultDurationUnit = 40;
@@ -35,14 +34,14 @@ abstract class AutoScrollController implements ScrollController {
     AutoScrollController copyTagsFrom
   }) {
     return SimpleAutoScrollController(
-      initialScrollOffset: initialScrollOffset,
-      keepScrollOffset: keepScrollOffset,
-      suggestedRowHeight: suggestedRowHeight,
-      viewportBoundaryGetter: viewportBoundaryGetter,
-      beginGetter: axis == Axis.horizontal ? (r) => r.left : (r) => r.top,
-      endGetter: axis == Axis.horizontal ? (r) => r.right : (r) => r.bottom,
-      copyTagsFrom: copyTagsFrom,
-      debugLabel: debugLabel
+        initialScrollOffset: initialScrollOffset,
+        keepScrollOffset: keepScrollOffset,
+        suggestedRowHeight: suggestedRowHeight,
+        viewportBoundaryGetter: viewportBoundaryGetter,
+        beginGetter: axis == Axis.horizontal ? (r) => r.left : (r) => r.top,
+        endGetter: axis == Axis.horizontal ? (r) => r.right : (r) => r.bottom,
+        copyTagsFrom: copyTagsFrom,
+        debugLabel: debugLabel
     );
   }
 
@@ -70,7 +69,7 @@ abstract class AutoScrollController implements ScrollController {
 
   /// scroll to the giving index
   Future scrollToIndex(int index, {Duration duration: scrollAnimationDuration,
-    AutoScrollPosition preferPosition});
+    AutoScrollPosition preferPosition, double extraOffset});
   /// highlight the item
   Future highlight(int index, {bool cancelExistHighlights: true,
     Duration highlightDuration: _highlightDuration, bool animated: true});
@@ -192,11 +191,11 @@ mixin AutoScrollControllerMixin on ScrollController implements AutoScrollControl
   static const maxBound = 30; // 0.5 second if 60fps
   @override
   Future scrollToIndex(int index, {Duration duration: scrollAnimationDuration,
-    AutoScrollPosition preferPosition}) async {
-    return co(this, () => _scrollToIndex(index, duration: duration, preferPosition: preferPosition));
+    AutoScrollPosition preferPosition, double extraOffset}) async {
+    return co(this, () => _scrollToIndex(index, duration: duration, preferPosition: preferPosition, extraOffset: extraOffset));
   }
 
-  Future _scrollToIndex(int index, {Duration duration: scrollAnimationDuration, AutoScrollPosition preferPosition}) async {
+  Future _scrollToIndex(int index, {Duration duration: scrollAnimationDuration, AutoScrollPosition preferPosition, double extraOffset}) async {
     assert(duration > Duration.zero);
 
     // In listView init or reload case, widget state of list item may not be ready for query.
@@ -224,7 +223,7 @@ mixin AutoScrollControllerMixin on ScrollController implements AutoScrollControl
       _isAutoScrolling = true;
 
       await _bringIntoViewportIfNeed(index, preferPosition, (double offset) async {
-        await animateTo(offset, duration: duration, curve: Curves.ease);
+        await animateTo(offset - extraOffset, duration: duration, curve: Curves.ease);
         await _waitForWidgetStateBuild();
         return null;
       });
@@ -260,7 +259,7 @@ mixin AutoScrollControllerMixin on ScrollController implements AutoScrollControl
         currentOffset = moveTarget;
         spentDuration += suggestedDuration ?? moveDuration;
         final oldOffset = offset;
-        await animateTo(currentOffset, duration: suggestedDuration ?? moveDuration, curve: Curves.ease);
+        await animateTo(currentOffset - extraOffset, duration: suggestedDuration ?? moveDuration, curve: Curves.ease);
         await _waitForWidgetStateBuild();
         if (!hasClients || offset == oldOffset) { // already scroll to begin or end
           contains = isIndexStateInLayoutRange(index);
@@ -274,14 +273,14 @@ mixin AutoScrollControllerMixin on ScrollController implements AutoScrollControl
           if (finalOffset != offset) {
             _isAutoScrolling = true;
             final remaining = duration - spentDuration;
-            await animateTo(finalOffset, duration: remaining <= Duration.zero ? _millisecond : remaining, curve: Curves.ease);
+            await animateTo(finalOffset - extraOffset, duration: remaining <= Duration.zero ? _millisecond : remaining, curve: Curves.ease);
             await _waitForWidgetStateBuild();
 
             // not sure why it doesn't scroll to the given offset, try more within 3 times
             if (hasClients && offset != finalOffset) {
               final count = 3;
               for (var i = 0; i < count && hasClients && offset != finalOffset; i++) {
-                await animateTo(finalOffset, duration: _millisecond, curve: Curves.ease);
+                await animateTo(finalOffset - extraOffset, duration: _millisecond, curve: Curves.ease);
                 await _waitForWidgetStateBuild();
               }
             }
@@ -359,7 +358,7 @@ mixin AutoScrollControllerMixin on ScrollController implements AutoScrollControl
 
   /// bring the state node (already created but all of it may not be fully in the viewport) into viewport
   Future _bringIntoViewportIfNeed(int index, AutoScrollPosition preferPosition,
-    Future move(double offset)) async {
+      Future move(double offset)) async {
     final begin = _directionalOffsetToRevealInViewport(index, 0);
     final end = _directionalOffsetToRevealInViewport(index, 1);
 
@@ -378,8 +377,8 @@ mixin AutoScrollControllerMixin on ScrollController implements AutoScrollControl
         double value;
         if (preferPosition != null) {
           value = preferPosition == AutoScrollPosition.begin
-            ? begin : preferPosition == AutoScrollPosition.end
-            ? end : _directionalOffsetToRevealInViewport(index, 0.5);
+              ? begin : preferPosition == AutoScrollPosition.end
+              ? end : _directionalOffsetToRevealInViewport(index, 0.5);
         } else if ((end - offset).abs() < (begin - offset).abs())
           value = end;
         else
@@ -460,7 +459,7 @@ class AutoScrollTag extends StatefulWidget {
 
   @override
   AutoScrollTagState createState() {
-    return new AutoScrollTagState<AutoScrollTag>();
+    return AutoScrollTagState<AutoScrollTag>();
   }
 }
 
@@ -518,16 +517,16 @@ class AutoScrollTagState<W extends AutoScrollTag> extends State<W> with TickerPr
 
   @override
   Widget build(BuildContext context) {
-    return new DecoratedBoxTransition(
-      decoration: new DecorationTween(
-        begin: widget.color != null ?
-        new BoxDecoration(color: widget.color) :
-        new BoxDecoration(),
-        end: widget.color != null ?
-        new BoxDecoration(color: widget.color) :
-        new BoxDecoration(color: widget.highlightColor)
-      ).animate(_controller ?? kAlwaysDismissedAnimation),
-      child: widget.child
+    return DecoratedBoxTransition(
+        decoration: DecorationTween(
+            begin: widget.color != null ?
+            BoxDecoration(color: widget.color) :
+            BoxDecoration(),
+            end: widget.color != null ?
+            BoxDecoration(color: widget.color) :
+            BoxDecoration(color: widget.highlightColor)
+        ).animate(_controller ?? kAlwaysDismissedAnimation),
+        child: widget.child
     );
   }
 
@@ -549,7 +548,7 @@ class AutoScrollTagState<W extends AutoScrollTag> extends State<W> with TickerPr
     }
 
     if (_controller == null) {
-      _controller = new AnimationController(vsync: this);
+      _controller = AnimationController(vsync: this);
       _highlights[this] = _controller;
     }
 
